@@ -11,12 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DemoRouteImport } from './routes/demo'
+import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminSecretRouteImport } from './routes/admin-secret'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignupPatientRouteImport } from './routes/signup.patient'
 import { Route as SignupHospitalRouteImport } from './routes/signup.hospital'
 import { Route as SignupDoctorRouteImport } from './routes/signup.doctor'
+import { Route as LoginHospitalRouteImport } from './routes/login.hospital'
 import { Route as DashboardPatientRouteImport } from './routes/dashboard.patient'
+import { Route as DashboardHospitalRouteImport } from './routes/dashboard.hospital'
 import { Route as DashboardDoctorRouteImport } from './routes/dashboard.doctor'
 import { Route as ApiAnalyzeRouteImport } from './routes/api.analyze'
 
@@ -28,6 +31,11 @@ const LoginRoute = LoginRouteImport.update({
 const DemoRoute = DemoRouteImport.update({
   id: '/demo',
   path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminSecretRoute = AdminSecretRouteImport.update({
@@ -55,9 +63,19 @@ const SignupDoctorRoute = SignupDoctorRouteImport.update({
   path: '/signup/doctor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginHospitalRoute = LoginHospitalRouteImport.update({
+  id: '/hospital',
+  path: '/hospital',
+  getParentRoute: () => LoginRoute,
+} as any)
 const DashboardPatientRoute = DashboardPatientRouteImport.update({
   id: '/dashboard/patient',
   path: '/dashboard/patient',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardHospitalRoute = DashboardHospitalRouteImport.update({
+  id: '/dashboard/hospital',
+  path: '/dashboard/hospital',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardDoctorRoute = DashboardDoctorRouteImport.update({
@@ -74,11 +92,14 @@ const ApiAnalyzeRoute = ApiAnalyzeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-secret': typeof AdminSecretRoute
+  '/contact': typeof ContactRoute
   '/demo': typeof DemoRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
+  '/dashboard/hospital': typeof DashboardHospitalRoute
   '/dashboard/patient': typeof DashboardPatientRoute
+  '/login/hospital': typeof LoginHospitalRoute
   '/signup/doctor': typeof SignupDoctorRoute
   '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
@@ -86,11 +107,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-secret': typeof AdminSecretRoute
+  '/contact': typeof ContactRoute
   '/demo': typeof DemoRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
+  '/dashboard/hospital': typeof DashboardHospitalRoute
   '/dashboard/patient': typeof DashboardPatientRoute
+  '/login/hospital': typeof LoginHospitalRoute
   '/signup/doctor': typeof SignupDoctorRoute
   '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
@@ -99,11 +123,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin-secret': typeof AdminSecretRoute
+  '/contact': typeof ContactRoute
   '/demo': typeof DemoRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
+  '/dashboard/hospital': typeof DashboardHospitalRoute
   '/dashboard/patient': typeof DashboardPatientRoute
+  '/login/hospital': typeof LoginHospitalRoute
   '/signup/doctor': typeof SignupDoctorRoute
   '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
@@ -113,11 +140,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin-secret'
+    | '/contact'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
+    | '/dashboard/hospital'
     | '/dashboard/patient'
+    | '/login/hospital'
     | '/signup/doctor'
     | '/signup/hospital'
     | '/signup/patient'
@@ -125,11 +155,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin-secret'
+    | '/contact'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
+    | '/dashboard/hospital'
     | '/dashboard/patient'
+    | '/login/hospital'
     | '/signup/doctor'
     | '/signup/hospital'
     | '/signup/patient'
@@ -137,11 +170,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin-secret'
+    | '/contact'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
+    | '/dashboard/hospital'
     | '/dashboard/patient'
+    | '/login/hospital'
     | '/signup/doctor'
     | '/signup/hospital'
     | '/signup/patient'
@@ -150,10 +186,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminSecretRoute: typeof AdminSecretRoute
+  ContactRoute: typeof ContactRoute
   DemoRoute: typeof DemoRoute
-  LoginRoute: typeof LoginRoute
+  LoginRoute: typeof LoginRouteWithChildren
   ApiAnalyzeRoute: typeof ApiAnalyzeRoute
   DashboardDoctorRoute: typeof DashboardDoctorRoute
+  DashboardHospitalRoute: typeof DashboardHospitalRoute
   DashboardPatientRoute: typeof DashboardPatientRoute
   SignupDoctorRoute: typeof SignupDoctorRoute
   SignupHospitalRoute: typeof SignupHospitalRoute
@@ -174,6 +212,13 @@ declare module '@tanstack/react-router' {
       path: '/demo'
       fullPath: '/demo'
       preLoaderRoute: typeof DemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin-secret': {
@@ -211,11 +256,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupDoctorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login/hospital': {
+      id: '/login/hospital'
+      path: '/hospital'
+      fullPath: '/login/hospital'
+      preLoaderRoute: typeof LoginHospitalRouteImport
+      parentRoute: typeof LoginRoute
+    }
     '/dashboard/patient': {
       id: '/dashboard/patient'
       path: '/dashboard/patient'
       fullPath: '/dashboard/patient'
       preLoaderRoute: typeof DashboardPatientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/hospital': {
+      id: '/dashboard/hospital'
+      path: '/dashboard/hospital'
+      fullPath: '/dashboard/hospital'
+      preLoaderRoute: typeof DashboardHospitalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard/doctor': {
@@ -235,13 +294,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface LoginRouteChildren {
+  LoginHospitalRoute: typeof LoginHospitalRoute
+}
+
+const LoginRouteChildren: LoginRouteChildren = {
+  LoginHospitalRoute: LoginHospitalRoute,
+}
+
+const LoginRouteWithChildren = LoginRoute._addFileChildren(LoginRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminSecretRoute: AdminSecretRoute,
+  ContactRoute: ContactRoute,
   DemoRoute: DemoRoute,
-  LoginRoute: LoginRoute,
+  LoginRoute: LoginRouteWithChildren,
   ApiAnalyzeRoute: ApiAnalyzeRoute,
   DashboardDoctorRoute: DashboardDoctorRoute,
+  DashboardHospitalRoute: DashboardHospitalRoute,
   DashboardPatientRoute: DashboardPatientRoute,
   SignupDoctorRoute: SignupDoctorRoute,
   SignupHospitalRoute: SignupHospitalRoute,

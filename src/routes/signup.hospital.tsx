@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Loader2, Plus, X, Building2, Stethoscope, Upload, ArrowRight } from "lucide-react";
+import { Loader2, Plus, X, Building2, Stethoscope, Upload, ArrowRight, Mail, CheckCircle2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { addFacility, type FacilityType } from "@/lib/hospitals";
+import { generateApplicationId, saveApplication } from "@/lib/hospitalAuth";
 
 export const Route = createFileRoute("/signup/hospital")({
   head: () => ({ meta: [{ title: "Hospital / Clinic registration — NivaranAI" }] }),
@@ -15,11 +16,13 @@ function HospitalSignup() {
   const [type, setType] = useState<FacilityType>("Hospital");
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
+  const [email, setEmail] = useState("");
   const [contact, setContact] = useState("");
   const [licenseFile, setLicenseFile] = useState("");
   const [departments, setDepartments] = useState<string[]>(["General Medicine"]);
   const [newDept, setNewDept] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmation, setConfirmation] = useState<{ appId: string; name: string } | null>(null);
 
   const isClinic = type === "Clinic";
 
@@ -42,8 +45,12 @@ function HospitalSignup() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !location.trim() || !contact.trim()) {
-      toast.error("Please fill in name, location, and contact.");
+    if (!name.trim() || !location.trim() || !contact.trim() || !email.trim()) {
+      toast.error("Please fill in name, location, email, and contact.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      toast.error("Enter a valid email address.");
       return;
     }
     if (departments.length === 0) {
@@ -52,25 +59,85 @@ function HospitalSignup() {
     }
     setSubmitting(true);
     try {
-      addFacility({
+      const facility = addFacility({
         name: name.trim(),
         type,
         location: location.trim(),
         contact: contact.trim(),
+        email: email.trim(),
         licenseFile: licenseFile || undefined,
         departments: (isClinic ? departments.slice(0, 1) : departments).map((n) => ({
           id: crypto.randomUUID(),
           name: n,
         })),
       });
-      toast.success("Submitted for review", {
-        description: "An admin will approve your facility shortly.",
+      const appId = generateApplicationId();
+      saveApplication({
+        applicationId: appId,
+        facilityId: facility.id,
+        email: email.trim(),
+        createdAt: Date.now(),
       });
-      setTimeout(() => navigate({ to: "/" }), 800);
+      setConfirmation({ appId, name: facility.name });
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (confirmation) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="mx-auto max-w-2xl px-5 py-12 sm:px-8 sm:py-16">
+          <div className="rounded-3xl border border-border bg-card p-8 shadow-elevated">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-success/15 text-success">
+              <CheckCircle2 className="h-7 w-7" />
+            </div>
+            <h1 className="font-display mt-5 text-center text-2xl font-semibold sm:text-3xl">
+              Application submitted ✅
+            </h1>
+            <p className="mt-2 text-center text-sm text-muted-foreground">
+              Thanks, {confirmation.name}. An admin will review your application shortly.
+            </p>
+
+            <div className="mt-6 rounded-2xl border border-dashed border-primary/40 bg-primary/5 p-5 text-center">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Application ID</p>
+              <p className="font-display mt-1 text-2xl font-bold tracking-wide text-primary">
+                {confirmation.appId}
+              </p>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(confirmation.appId);
+                  toast.success("Copied to clipboard");
+                }}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs hover:bg-secondary"
+              >
+                <Copy className="h-3 w-3" /> Copy ID
+              </button>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Save this ID to track your approval status. Login credentials will be issued after approval.
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-2 sm:grid-cols-2">
+              <Link
+                to="/login/hospital"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-background px-5 py-2.5 text-sm font-medium hover:bg-secondary"
+              >
+                Hospital login
+              </Link>
+              <button
+                onClick={() => navigate({ to: "/" })}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background hover:bg-mineral"
+              >
+                Back to home
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -87,7 +154,6 @@ function HospitalSignup() {
         </p>
 
         <form onSubmit={submit} className="mt-8 space-y-6 rounded-3xl border border-border bg-card p-6 shadow-soft sm:p-8">
-          {/* Type toggle */}
           <div>
             <label className="text-xs font-medium text-muted-foreground">Facility type</label>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -123,9 +189,16 @@ function HospitalSignup() {
 
           <Field label="Facility name" value={name} onChange={setName} placeholder="Apollo City Hospital" />
           <Field label="Location" value={location} onChange={setLocation} placeholder="MG Road, Bengaluru" />
-          <Field label="Contact" value={contact} onChange={setContact} placeholder="+91 80 4000 0000" />
+          <Field
+            label="Email (required)"
+            value={email}
+            onChange={setEmail}
+            placeholder="admin@apollo.com"
+            type="email"
+            icon={<Mail className="h-3.5 w-3.5" />}
+          />
+          <Field label="Contact number" value={contact} onChange={setContact} placeholder="+91 80 4000 0000" />
 
-          {/* License upload (mock) */}
           <div>
             <label className="text-xs font-medium text-muted-foreground">License / Certificate</label>
             <label className="mt-2 flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-border bg-background px-4 py-3 text-sm hover:border-foreground/40">
@@ -140,7 +213,6 @@ function HospitalSignup() {
             </label>
           </div>
 
-          {/* Departments */}
           <div>
             <label className="text-xs font-medium text-muted-foreground">
               Departments {isClinic && <span className="text-foreground/60">(clinic limited to 1)</span>}
@@ -184,7 +256,7 @@ function HospitalSignup() {
           </div>
 
           <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground/80">
-            Doctors are added by the administrator after approval, to prevent fraudulent listings.
+            Doctors are added by you (the hospital) after approval, via your hospital dashboard.
           </div>
 
           <button
@@ -206,21 +278,33 @@ function Field({
   value,
   onChange,
   placeholder,
+  type = "text",
+  icon,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  type?: string;
+  icon?: React.ReactNode;
 }) {
   return (
     <div>
       <label className="text-xs font-medium text-muted-foreground">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-foreground"
-      />
+      <div className="relative mt-2">
+        {icon && (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+            {icon}
+          </span>
+        )}
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full rounded-xl border border-border bg-background py-2.5 text-sm outline-none focus:border-foreground ${icon ? "pl-9 pr-3" : "px-3"}`}
+        />
+      </div>
     </div>
   );
 }
