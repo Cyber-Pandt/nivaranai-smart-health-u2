@@ -30,6 +30,7 @@ export interface Facility {
   type: FacilityType;
   location: string;
   contact: string;
+  email?: string;
   licenseFile?: string; // mock filename
   status: FacilityStatus;
   departments: Department[];
