@@ -40,6 +40,7 @@ export interface PatientRecord extends TriageResult {
   patient_name: string;
   patient_age?: number;
   patient_gender?: string;
+  patient_phone?: string;
   transcript: string;
   priority: Priority;
   timestamp: number;
@@ -119,7 +120,7 @@ export const priorityMeta: Record<
   },
 };
 
-export const PATIENTS_KEY = "nivaranai.patients.v1";
+export const PATIENTS_KEY = "nivaranai.patients.v3";
 
 export function loadPatients(): PatientRecord[] {
   if (typeof window === "undefined") return [];
@@ -196,13 +197,14 @@ function seedPatients(): PatientRecord[] {
       id: "seed-1",
       patient_name: encryptVault("Priya Nair"),
       patient_age: 28,
+      patient_phone: "+91 9876543210",
       transcript: "I have had a fever and sore throat for two days.",
       main_symptom: "Fever with sore throat",
       duration: "2 days",
       severity: 4,
       priority: "normal",
       status: "pending",
-      location: "Bhopal",
+      location: "462001",
       timestamp: now - 1000 * 60 * 14,
       soap: {
         subjective:
@@ -228,6 +230,7 @@ function seedPatients(): PatientRecord[] {
       id: "seed-2",
       patient_name: encryptVault("Ramesh Kumar"),
       patient_age: 56,
+      patient_phone: "+91 8765432109",
       transcript: "Severe headache and my BP feels very high since morning.",
       main_symptom: "Severe headache with high BP",
       duration: "Since morning",
@@ -260,13 +263,14 @@ function seedPatients(): PatientRecord[] {
       id: "seed-3",
       patient_name: encryptVault("Amit Singh"),
       patient_age: 32,
+      patient_phone: "+91 7654321098",
       transcript: "High fever and chills since last night.",
       main_symptom: "High fever",
       duration: "1 day",
       severity: 5,
       priority: "urgent",
       status: "pending",
-      location: "Bhopal",
+      location: "462001",
       timestamp: now - 1000 * 60 * 30,
       soap: { subjective: "Fever and chills", objective: "Awaiting exam", assessment: "Fever evaluation", plan: "CBC, fever panel" }
     },
@@ -274,13 +278,14 @@ function seedPatients(): PatientRecord[] {
       id: "seed-4",
       patient_name: encryptVault("Sneha Verma"),
       patient_age: 22,
+      patient_phone: "+91 6543210987",
       transcript: "Body ache with mild fever for 3 days.",
       main_symptom: "Mild fever and body ache",
       duration: "3 days",
       severity: 3,
       priority: "normal",
       status: "pending",
-      location: "Bhopal",
+      location: "462001",
       timestamp: now - 1000 * 60 * 45,
       soap: { subjective: "Body ache, feverish", objective: "Awaiting exam", assessment: "Viral fever suspected", plan: "Symptomatic relief" }
     },
@@ -288,15 +293,46 @@ function seedPatients(): PatientRecord[] {
       id: "seed-5",
       patient_name: encryptVault("Vikram Das"),
       patient_age: 41,
+      patient_phone: "+91 5432109876",
       transcript: "Fever of 102 and coughing.",
       main_symptom: "High fever with cough",
       duration: "2 days",
       severity: 6,
       priority: "urgent",
       status: "pending",
-      location: "Bhopal",
+      location: "462001",
       timestamp: now - 1000 * 60 * 60,
       soap: { subjective: "Fever 102, cough", objective: "Awaiting exam", assessment: "LRTI evaluation", plan: "Chest X-ray, meds" }
+    },
+    {
+      id: "seed-6",
+      patient_name: encryptVault("Sunita Devi"),
+      patient_age: 38,
+      patient_phone: "+91 9998887776",
+      transcript: "I have had a high fever for two days.",
+      main_symptom: "Fever",
+      duration: "2 days",
+      severity: 5,
+      priority: "normal",
+      status: "pending",
+      location: "462001",
+      timestamp: now - 1000 * 60 * 15,
+      soap: { subjective: "High fever reports", objective: "Awaiting exam", assessment: "Fever evaluation", plan: "Wait for lab results" }
+    },
+    {
+      id: "seed-7",
+      patient_name: encryptVault("Kamal Hasan"),
+      patient_age: 45,
+      patient_phone: "+91 8887776665",
+      transcript: "Terrible fever since last night.",
+      main_symptom: "Fever",
+      duration: "1 day",
+      severity: 6,
+      priority: "urgent",
+      status: "pending",
+      location: "462001",
+      timestamp: now - 1000 * 60 * 20,
+      soap: { subjective: "Fever and fatigue", objective: "Awaiting exam", assessment: "Fever evaluation", plan: "Check temperature" }
     }
   ];
   savePatients(seed);

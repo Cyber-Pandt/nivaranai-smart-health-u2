@@ -22,6 +22,9 @@ import {
   Lock,
   Pill,
   Save,
+  Mic,
+  MicOff,
+  Loader2,
 } from "lucide-react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { useAuth } from "@/lib/auth";
@@ -36,6 +39,8 @@ import {
 } from "@/lib/triage";
 import { usePatients } from "@/hooks/usePatients";
 import { useFacilities } from "@/hooks/useFacilities";
+import { isVoiceSupported, startVoice, type VoiceSession } from "@/lib/voice";
+import { useEffect, useRef } from "react";
 
 export const Route = createFileRoute("/dashboard/doctor")({
   head: () => ({
@@ -614,6 +619,54 @@ function ConsultationTools({ patient, onComplete }: { patient: PatientRecord; on
   const [drug, setDrug] = useState("");
   const [notes, setNotes] = useState("");
   
+  // Voice Recording functionality
+  const [recordingTarget, setRecordingTarget] = useState<"notes" | "drug" | null>(null);
+  const [starting, setStarting] = useState(false);
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const [supported, setSupported] = useState(true);
+
+  useEffect(() => {
+    setSupported(isVoiceSupported());
+    return () => sessionRef.current?.stop();
+  }, []);
+
+  const startRecording = async (target: "notes" | "drug") => {
+    setStarting(true);
+    setRecordingTarget(target);
+    try {
+      const s = await startVoice({
+        lang: "en-IN",
+        onInterim: (t) => {
+           // We can skip interim or handle it smoothly. Keeping it simple.
+        },
+        onFinal: (t) => {
+          if (target === "notes") setNotes((prev) => (prev ? `${prev.trim()} ${t.trim()}` : t.trim()));
+          if (target === "drug") setDrug((prev) => (prev ? `${prev.trim()} ${t.trim()}` : t.trim()));
+        },
+        onError: (msg) => {
+          toast.error(msg);
+          setRecordingTarget(null);
+        },
+        onEnd: () => {
+          setRecordingTarget(null);
+        },
+      });
+      if (s) {
+        sessionRef.current = s;
+      } else {
+        setRecordingTarget(null);
+      }
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const stopRecording = () => {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setRecordingTarget(null);
+  };
+  
   const handlePrescribe = () => {
     if (!drug) return;
     // Mock Drug Interaction Engine
@@ -636,22 +689,44 @@ function ConsultationTools({ patient, onComplete }: { patient: PatientRecord; on
     <div className="mt-4 w-full rounded-2xl border border-border bg-secondary/30 p-4">
       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Consultation Summary</h4>
       <div className="space-y-3">
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Add clinical notes, update diagnosis..."
-          className="w-full resize-none rounded-xl border border-input bg-background p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-          rows={2}
-        />
+        <div className="relative">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            disabled={recordingTarget === "notes" && starting}
+            placeholder={recordingTarget === "notes" ? "Listening..." : "Add clinical notes, update diagnosis..."}
+            className={`w-full resize-none rounded-xl border border-input bg-background p-3 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 ${recordingTarget === "notes" ? 'ring-2 ring-primary/50' : ''}`}
+            rows={2}
+          />
+          {supported && (
+            <button
+              onClick={() => recordingTarget === "notes" ? stopRecording() : startRecording("notes")}
+              className={`absolute right-2 top-2 rounded-lg p-1.5 transition-all ${recordingTarget === "notes" ? 'bg-destructive text-destructive-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
+            >
+              {recordingTarget === "notes" && starting ? <Loader2 className="h-4 w-4 animate-spin" /> : 
+               recordingTarget === "notes" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Pill className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               value={drug}
               onChange={(e) => setDrug(e.target.value)}
-              placeholder="e.g. Paracetamol 500mg (Try 'Ibuprofen')"
-              className="w-full rounded-xl border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+              disabled={recordingTarget === "drug" && starting}
+              placeholder={recordingTarget === "drug" ? "Listening..." : "e.g. Paracetamol 500mg (Try 'Ibuprofen')"}
+              className={`w-full rounded-xl border border-input bg-background py-2 pl-9 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 ${recordingTarget === "drug" ? 'ring-2 ring-primary/50' : ''}`}
             />
+            {supported && (
+              <button
+                onClick={() => recordingTarget === "drug" ? stopRecording() : startRecording("drug")}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 transition-all ${recordingTarget === "drug" ? 'bg-destructive text-destructive-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
+              >
+                {recordingTarget === "drug" && starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 
+                 recordingTarget === "drug" ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
+            )}
           </div>
           <button
             onClick={handlePrescribe}
