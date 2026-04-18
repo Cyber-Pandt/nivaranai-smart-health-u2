@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DemoRouteImport } from './routes/demo'
+import { Route as AdminSecretRouteImport } from './routes/admin-secret'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignupPatientRouteImport } from './routes/signup.patient'
+import { Route as SignupHospitalRouteImport } from './routes/signup.hospital'
 import { Route as SignupDoctorRouteImport } from './routes/signup.doctor'
 import { Route as DashboardPatientRouteImport } from './routes/dashboard.patient'
 import { Route as DashboardDoctorRouteImport } from './routes/dashboard.doctor'
@@ -28,6 +30,11 @@ const DemoRoute = DemoRouteImport.update({
   path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSecretRoute = AdminSecretRouteImport.update({
+  id: '/admin-secret',
+  path: '/admin-secret',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -36,6 +43,11 @@ const IndexRoute = IndexRouteImport.update({
 const SignupPatientRoute = SignupPatientRouteImport.update({
   id: '/signup/patient',
   path: '/signup/patient',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupHospitalRoute = SignupHospitalRouteImport.update({
+  id: '/signup/hospital',
+  path: '/signup/hospital',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignupDoctorRoute = SignupDoctorRouteImport.update({
@@ -61,76 +73,90 @@ const ApiAnalyzeRoute = ApiAnalyzeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-secret': typeof AdminSecretRoute
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
   '/dashboard/patient': typeof DashboardPatientRoute
   '/signup/doctor': typeof SignupDoctorRoute
+  '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-secret': typeof AdminSecretRoute
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
   '/dashboard/patient': typeof DashboardPatientRoute
   '/signup/doctor': typeof SignupDoctorRoute
+  '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin-secret': typeof AdminSecretRoute
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/api/analyze': typeof ApiAnalyzeRoute
   '/dashboard/doctor': typeof DashboardDoctorRoute
   '/dashboard/patient': typeof DashboardPatientRoute
   '/signup/doctor': typeof SignupDoctorRoute
+  '/signup/hospital': typeof SignupHospitalRoute
   '/signup/patient': typeof SignupPatientRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin-secret'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
     | '/dashboard/patient'
     | '/signup/doctor'
+    | '/signup/hospital'
     | '/signup/patient'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin-secret'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
     | '/dashboard/patient'
     | '/signup/doctor'
+    | '/signup/hospital'
     | '/signup/patient'
   id:
     | '__root__'
     | '/'
+    | '/admin-secret'
     | '/demo'
     | '/login'
     | '/api/analyze'
     | '/dashboard/doctor'
     | '/dashboard/patient'
     | '/signup/doctor'
+    | '/signup/hospital'
     | '/signup/patient'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminSecretRoute: typeof AdminSecretRoute
   DemoRoute: typeof DemoRoute
   LoginRoute: typeof LoginRoute
   ApiAnalyzeRoute: typeof ApiAnalyzeRoute
   DashboardDoctorRoute: typeof DashboardDoctorRoute
   DashboardPatientRoute: typeof DashboardPatientRoute
   SignupDoctorRoute: typeof SignupDoctorRoute
+  SignupHospitalRoute: typeof SignupHospitalRoute
   SignupPatientRoute: typeof SignupPatientRoute
 }
 
@@ -150,6 +176,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin-secret': {
+      id: '/admin-secret'
+      path: '/admin-secret'
+      fullPath: '/admin-secret'
+      preLoaderRoute: typeof AdminSecretRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -162,6 +195,13 @@ declare module '@tanstack/react-router' {
       path: '/signup/patient'
       fullPath: '/signup/patient'
       preLoaderRoute: typeof SignupPatientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup/hospital': {
+      id: '/signup/hospital'
+      path: '/signup/hospital'
+      fullPath: '/signup/hospital'
+      preLoaderRoute: typeof SignupHospitalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signup/doctor': {
@@ -197,23 +237,16 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminSecretRoute: AdminSecretRoute,
   DemoRoute: DemoRoute,
   LoginRoute: LoginRoute,
   ApiAnalyzeRoute: ApiAnalyzeRoute,
   DashboardDoctorRoute: DashboardDoctorRoute,
   DashboardPatientRoute: DashboardPatientRoute,
   SignupDoctorRoute: SignupDoctorRoute,
+  SignupHospitalRoute: SignupHospitalRoute,
   SignupPatientRoute: SignupPatientRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
