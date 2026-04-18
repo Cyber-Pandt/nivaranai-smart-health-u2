@@ -1,18 +1,43 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Mic, MicOff, Loader2, Sparkles, Send, Languages, Clock, FileText, Activity, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Loader2,
+  Sparkles,
+  Languages,
+  Clock,
+  FileText,
+  Activity,
+  CheckCircle2,
+  Building2,
+  Stethoscope,
+  Wand2,
+  ListChecks,
+  ChevronRight,
+  ArrowLeft,
+  MapPin,
+} from "lucide-react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { useAuth } from "@/lib/auth";
-import { addPatient, analyzeTranscript, getPriority, priorityMeta, type PatientRecord } from "@/lib/triage";
+import {
+  addPatient,
+  analyzeTranscript,
+  getPriority,
+  priorityMeta,
+  type Assignment,
+  type PatientRecord,
+  type TriageResult,
+} from "@/lib/triage";
 import { usePatients } from "@/hooks/usePatients";
+import { useFacilities } from "@/hooks/useFacilities";
+import { type Doctor, type Facility } from "@/lib/hospitals";
 import { isVoiceSupported, startVoice, type VoiceLang, type VoiceSession } from "@/lib/voice";
 
 export const Route = createFileRoute("/dashboard/patient")({
-  head: () => ({
-    meta: [{ title: "Patient dashboard — NivaranAI" }],
-  }),
+  head: () => ({ meta: [{ title: "Patient dashboard — NivaranAI" }] }),
   component: PatientDashboard,
 });
 
@@ -20,7 +45,6 @@ function PatientDashboard() {
   const { user } = useAuth();
   const allPatients = usePatients();
 
-  // Patients submitted by *this* user (matched by name) — purely cosmetic.
   const mine = allPatients.filter(
     (p) => user && p.patient_name.toLowerCase() === user.name.toLowerCase(),
   );
@@ -31,10 +55,10 @@ function PatientDashboard() {
     <DashboardShell
       requiredRole="patient"
       title={`Hello, ${user?.name.split(" ")[0] ?? "there"}`}
-      subtitle="Describe your symptoms by voice — we'll send a SOAP summary to the doctor in real time."
+      subtitle="Describe symptoms by voice. AI triages, then we route you to the right doctor."
     >
       <div className="grid gap-5 lg:grid-cols-3">
-        <VoiceConsultCard />
+        <PatientWizard />
         <QueueCard latest={latest} position={queuePosition} totalWaiting={allPatients.length} />
         <SubmissionsCard records={mine} />
       </div>
@@ -43,17 +67,157 @@ function PatientDashboard() {
 }
 
 /* ============================================================
-   Voice consultation card
+   Patient wizard: Symptoms → Analysis → Assignment
    ============================================================ */
 
-function VoiceConsultCard() {
+type Step = 1 | 2 | 3;
+
+function PatientWizard() {
   const { user } = useAuth();
-  const [lang, setLang] = useState<VoiceLang>("en-IN");
+  const facilities = useFacilities().filter((f) => f.status === "approved");
+
+  const [step, setStep] = useState<Step>(1);
   const [transcript, setTranscript] = useState("");
+  const [analysis, setAnalysis] = useState<(TriageResult & { suggested_department?: string }) | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
+
+  const allDepartmentNames = useMemo(() => {
+    const set = new Set<string>();
+    facilities.forEach((f) => f.departments.forEach((d) => set.add(d.name)));
+    return Array.from(set);
+  }, [facilities]);
+
+  const reset = () => {
+    setStep(1);
+    setTranscript("");
+    setAnalysis(null);
+    setAssignment(null);
+  };
+
+  const runAnalyze = async (text: string) => {
+    setAnalyzing(true);
+    try {
+      const result = await analyzeTranscript(text, allDepartmentNames);
+      setAnalysis(result);
+      setStep(2);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not analyze. Try again.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const finalize = (a: Assignment) => {
+    if (!analysis) return;
+    const priority = getPriority(analysis.severity);
+    const rec: PatientRecord = {
+      ...analysis,
+      id: `p-${Date.now()}`,
+      patient_name: user?.name ?? `Patient ${Math.floor(Math.random() * 900) + 100}`,
+      patient_age: (user as any)?.age,
+      patient_gender: (user as any)?.gender,
+      transcript,
+      priority,
+      status: "waiting",
+      timestamp: Date.now(),
+      assignment: a,
+      suggested_department: analysis.suggested_department,
+    };
+    addPatient(rec);
+    setAssignment(a);
+    setStep(3);
+    toast.success(`Assigned to ${a.doctorName} · ${priorityMeta[priority].label}`);
+  };
+
+  return (
+    <div className="lg:col-span-2 rounded-3xl border border-border bg-card p-6 shadow-soft">
+      <Stepper step={step} />
+
+      <AnimatePresence mode="wait">
+        {step === 1 && (
+          <motion.div key="s1" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            <SymptomsStep
+              transcript={transcript}
+              setTranscript={setTranscript}
+              onNext={() => runAnalyze(transcript.trim())}
+              analyzing={analyzing}
+            />
+          </motion.div>
+        )}
+        {step === 2 && analysis && (
+          <motion.div key="s2" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            <AssignStep
+              analysis={analysis}
+              facilities={facilities}
+              onBack={() => setStep(1)}
+              onAssign={finalize}
+            />
+          </motion.div>
+        )}
+        {step === 3 && assignment && analysis && (
+          <motion.div key="s3" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            <SuccessStep assignment={assignment} severity={analysis.severity} onAgain={reset} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function Stepper({ step }: { step: Step }) {
+  const items = [
+    { n: 1, label: "Symptoms" },
+    { n: 2, label: "AI Analysis" },
+    { n: 3, label: "Assignment" },
+  ];
+  return (
+    <div className="mb-6 flex items-center gap-2">
+      {items.map((it, i) => {
+        const active = step === it.n;
+        const done = step > it.n;
+        return (
+          <div key={it.n} className="flex flex-1 items-center gap-2">
+            <div
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-all ${
+                done
+                  ? "border-success bg-success text-background"
+                  : active
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-background text-muted-foreground"
+              }`}
+            >
+              {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : it.n}
+            </div>
+            <span className={`text-xs font-medium ${active || done ? "text-foreground" : "text-muted-foreground"}`}>
+              {it.label}
+            </span>
+            {i < items.length - 1 && <div className="h-px flex-1 bg-border" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---- Step 1 — Symptoms (voice + text) ---- */
+
+function SymptomsStep({
+  transcript,
+  setTranscript,
+  onNext,
+  analyzing,
+}: {
+  transcript: string;
+  setTranscript: (v: string) => void;
+  onNext: () => void;
+  analyzing: boolean;
+}) {
+  const [lang, setLang] = useState<VoiceLang>("en-IN");
   const [interim, setInterim] = useState("");
   const [recording, setRecording] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [supported, setSupported] = useState(true);
+  const [starting, setStarting] = useState(false);
   const sessionRef = useRef<VoiceSession | null>(null);
 
   useEffect(() => {
@@ -61,27 +225,32 @@ function VoiceConsultCard() {
     return () => sessionRef.current?.stop();
   }, []);
 
-  const start = () => {
+  const start = async () => {
     setInterim("");
-    const s = startVoice({
-      lang,
-      onInterim: setInterim,
-      onFinal: (t) => {
-        setTranscript((prev) => (prev ? `${prev.trim()} ${t.trim()}` : t.trim()));
-        setInterim("");
-      },
-      onError: (msg) => {
-        toast.error(msg);
-        setRecording(false);
-      },
-      onEnd: () => {
-        setInterim("");
-        setRecording(false);
-      },
-    });
-    if (s) {
-      sessionRef.current = s;
-      setRecording(true);
+    setStarting(true);
+    try {
+      const s = await startVoice({
+        lang,
+        onInterim: setInterim,
+        onFinal: (t) => {
+          setTranscript(transcript ? `${transcript.trim()} ${t.trim()}` : t.trim());
+          setInterim("");
+        },
+        onError: (msg) => {
+          toast.error(msg);
+          setRecording(false);
+        },
+        onEnd: () => {
+          setInterim("");
+          setRecording(false);
+        },
+      });
+      if (s) {
+        sessionRef.current = s;
+        setRecording(true);
+      }
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -91,48 +260,16 @@ function VoiceConsultCard() {
     setRecording(false);
   };
 
-  const submit = async () => {
-    const final = transcript.trim();
-    if (!final) {
-      toast.error("Please describe your symptoms first.");
-      return;
-    }
-    setAnalyzing(true);
-    try {
-      const result = await analyzeTranscript(final);
-      const priority = getPriority(result.severity);
-      const rec: PatientRecord = {
-        ...result,
-        id: `p-${Date.now()}`,
-        patient_name: user?.name ?? `Patient ${Math.floor(Math.random() * 900) + 100}`,
-        patient_age: (user as any)?.age,
-        patient_gender: (user as any)?.gender,
-        transcript: final,
-        priority,
-        status: "waiting",
-        timestamp: Date.now(),
-      };
-      addPatient(rec);
-      toast.success(`Sent to doctor · ${priorityMeta[priority].label}`);
-      setTranscript("");
-      setInterim("");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Could not analyze. Try again.");
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
   const display = transcript + (interim ? ` ${interim}` : "");
 
   return (
-    <div className="lg:col-span-2 rounded-3xl border border-border bg-card p-6 shadow-soft">
+    <div>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-display text-xs uppercase tracking-[0.18em] text-primary">Voice consultation</p>
+          <p className="font-display text-xs uppercase tracking-[0.18em] text-primary">Step 1</p>
           <h2 className="mt-1 font-display text-lg font-semibold">Describe your symptoms</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Speak naturally. AI prepares a SOAP summary and sends it to the doctor's queue.
+            Speak naturally — you can edit the transcript before sending.
           </p>
         </div>
         <button
@@ -164,10 +301,11 @@ function VoiceConsultCard() {
           <motion.button
             whileTap={{ scale: 0.96 }}
             onClick={start}
-            disabled={!supported || analyzing}
+            disabled={!supported || analyzing || starting}
             className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-all hover:-translate-y-0.5 hover:bg-mineral hover:shadow-elevated disabled:opacity-50"
           >
-            <Mic className="h-4 w-4" /> Start speaking
+            {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+            {starting ? "Requesting mic…" : "Start speaking"}
           </motion.button>
         ) : (
           <motion.button
@@ -182,7 +320,7 @@ function VoiceConsultCard() {
 
       {!supported && (
         <p className="mt-3 text-center text-xs text-muted-foreground">
-          Mic isn't supported on this browser — type your symptoms below instead.
+          Mic isn't supported here — type your symptoms below instead.
         </p>
       )}
 
@@ -204,21 +342,348 @@ function VoiceConsultCard() {
 
       <motion.button
         whileTap={{ scale: 0.97 }}
-        onClick={submit}
+        onClick={onNext}
         disabled={analyzing || !transcript.trim()}
         className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-mineral px-5 py-3.5 text-sm font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:opacity-50"
       >
         {analyzing ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" /> Sending to doctor…
+            <Loader2 className="h-4 w-4 animate-spin" /> AI is analyzing…
           </>
         ) : (
           <>
-            <Sparkles className="h-4 w-4" /> Send to doctor
-            <Send className="h-4 w-4" />
+            <Sparkles className="h-4 w-4" /> Analyze with AI
+            <ChevronRight className="h-4 w-4" />
           </>
         )}
       </motion.button>
+    </div>
+  );
+}
+
+/* ---- Step 2 — AI summary + manual / auto-assign ---- */
+
+function AssignStep({
+  analysis,
+  facilities,
+  onBack,
+  onAssign,
+}: {
+  analysis: TriageResult & { suggested_department?: string };
+  facilities: Facility[];
+  onBack: () => void;
+  onAssign: (a: Assignment) => void;
+}) {
+  const priority = getPriority(analysis.severity);
+  const m = priorityMeta[priority];
+
+  const [mode, setMode] = useState<"auto" | "manual">("auto");
+
+  // Manual selection state
+  const [facilityId, setFacilityId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [doctorId, setDoctorId] = useState("");
+
+  const selectedFacility = facilities.find((f) => f.id === facilityId);
+  const departmentDoctors = selectedFacility?.doctors.filter((d) => d.departmentId === departmentId) ?? [];
+
+  const buildAssignment = (
+    f: Facility,
+    departmentName: string,
+    departmentIdResolved: string,
+    doctor: Doctor,
+    chosenMode: "auto" | "manual",
+  ): Assignment => ({
+    facilityId: f.id,
+    facilityName: f.name,
+    facilityType: f.type,
+    departmentId: departmentIdResolved,
+    departmentName,
+    doctorId: doctor.id,
+    doctorName: doctor.name,
+    doctorSpecialty: doctor.specialty,
+    room: doctor.room,
+    mode: chosenMode,
+  });
+
+  const autoAssign = () => {
+    const dept = analysis.suggested_department ?? "General Medicine";
+    // Find any approved facility with this department + an available doctor.
+    for (const f of facilities) {
+      const matchedDept = f.departments.find((d) => d.name.toLowerCase() === dept.toLowerCase());
+      if (!matchedDept) continue;
+      const doc = f.doctors.find((d) => d.departmentId === matchedDept.id && d.available !== false);
+      if (doc) return onAssign(buildAssignment(f, matchedDept.name, matchedDept.id, doc, "auto"));
+    }
+    // Fallback: any facility with any available doctor in General Medicine
+    for (const f of facilities) {
+      const general = f.departments.find((d) => /general/i.test(d.name));
+      if (!general) continue;
+      const doc = f.doctors.find((d) => d.departmentId === general.id && d.available !== false);
+      if (doc) return onAssign(buildAssignment(f, general.name, general.id, doc, "auto"));
+    }
+    // Final fallback: literally any available doctor anywhere
+    for (const f of facilities) {
+      const doc = f.doctors.find((d) => d.available !== false);
+      if (doc) {
+        const dDept = f.departments.find((d) => d.id === doc.departmentId);
+        return onAssign(buildAssignment(f, dDept?.name ?? "General", doc.departmentId, doc, "auto"));
+      }
+    }
+    toast.error("No approved doctors available right now. Please try manual selection.");
+  };
+
+  const manualAssign = () => {
+    const f = facilities.find((x) => x.id === facilityId);
+    const dept = f?.departments.find((d) => d.id === departmentId);
+    const doc = f?.doctors.find((d) => d.id === doctorId);
+    if (!f || !dept || !doc) {
+      toast.error("Pick hospital, department, and doctor.");
+      return;
+    }
+    onAssign(buildAssignment(f, dept.name, dept.id, doc, "manual"));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-display text-xs uppercase tracking-[0.18em] text-primary">Step 2</p>
+          <h2 className="mt-1 font-display text-lg font-semibold">Choose your doctor</h2>
+        </div>
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs hover:bg-secondary"
+        >
+          <ArrowLeft className="h-3 w-3" /> Edit symptoms
+        </button>
+      </div>
+
+      {/* AI summary card */}
+      <div className="mt-4 rounded-2xl border border-border bg-secondary/40 p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">AI assessment</p>
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.chip}`}>
+            {m.label} · {analysis.severity}/10
+          </span>
+        </div>
+        <p className="mt-2 text-sm font-medium text-foreground">{analysis.main_symptom}</p>
+        <p className="text-xs text-muted-foreground">{analysis.duration}</p>
+        {analysis.suggested_department && (
+          <p className="mt-2 text-xs">
+            <Sparkles className="mr-1 inline h-3 w-3 text-primary" />
+            Suggested department: <span className="font-semibold text-foreground">{analysis.suggested_department}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Mode toggle */}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <ModeButton
+          active={mode === "auto"}
+          onClick={() => setMode("auto")}
+          icon={Wand2}
+          label="Auto-assign"
+          desc="AI picks the best doctor"
+        />
+        <ModeButton
+          active={mode === "manual"}
+          onClick={() => setMode("manual")}
+          icon={ListChecks}
+          label="Manual"
+          desc="Pick hospital & doctor"
+        />
+      </div>
+
+      {mode === "auto" ? (
+        <button
+          onClick={autoAssign}
+          disabled={facilities.length === 0}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-mineral px-5 py-3.5 text-sm font-semibold text-primary-foreground shadow-soft hover:shadow-elevated disabled:opacity-50"
+        >
+          <Wand2 className="h-4 w-4" /> Auto-assign me to a doctor
+        </button>
+      ) : (
+        <div className="mt-4 space-y-2">
+          <Select
+            label="Hospital / Clinic"
+            value={facilityId}
+            onChange={(v) => {
+              setFacilityId(v);
+              setDepartmentId("");
+              setDoctorId("");
+            }}
+            placeholder="Select facility"
+            options={facilities.map((f) => ({
+              value: f.id,
+              label: `${f.name} (${f.type})`,
+            }))}
+          />
+          <Select
+            label="Department"
+            value={departmentId}
+            onChange={(v) => {
+              setDepartmentId(v);
+              setDoctorId("");
+            }}
+            placeholder={selectedFacility ? "Select department" : "Pick facility first"}
+            options={(selectedFacility?.departments ?? []).map((d) => ({ value: d.id, label: d.name }))}
+            disabled={!selectedFacility}
+          />
+          <Select
+            label="Doctor"
+            value={doctorId}
+            onChange={setDoctorId}
+            placeholder={departmentId ? "Select doctor" : "Pick department first"}
+            options={departmentDoctors.map((d) => ({
+              value: d.id,
+              label: `${d.name} · ${d.specialty}${d.room ? ` · ${d.room}` : ""}`,
+            }))}
+            disabled={!departmentId}
+          />
+          <button
+            onClick={manualAssign}
+            disabled={!doctorId}
+            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-foreground px-5 py-3.5 text-sm font-semibold text-background hover:bg-mineral disabled:opacity-50"
+          >
+            Confirm assignment <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {facilities.length === 0 && (
+        <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground/80">
+          No approved hospitals or clinics yet. Ask an admin to approve one.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+  desc,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  desc: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-start gap-2 rounded-2xl border p-3 text-left text-sm transition-all ${
+        active
+          ? "border-foreground bg-foreground text-background shadow-soft"
+          : "border-border bg-background text-foreground hover:border-foreground/40"
+      }`}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <div>
+        <div className="font-medium">{label}</div>
+        <div className={`text-xs ${active ? "text-background/70" : "text-muted-foreground"}`}>{desc}</div>
+      </div>
+    </button>
+  );
+}
+
+function Select({
+  label,
+  value,
+  onChange,
+  placeholder,
+  options,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  options: { value: string; label: string }[];
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-foreground disabled:opacity-50"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/* ---- Step 3 — Success / assignment card ---- */
+
+function SuccessStep({
+  assignment,
+  severity,
+  onAgain,
+}: {
+  assignment: Assignment;
+  severity: number;
+  onAgain: () => void;
+}) {
+  const m = priorityMeta[getPriority(severity)];
+  const Icon = assignment.facilityType === "Hospital" ? Building2 : Stethoscope;
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-5 w-5 text-success" />
+        <p className="font-display text-xs uppercase tracking-[0.18em] text-success">Assigned</p>
+      </div>
+      <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight">You're booked in</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {assignment.mode === "auto" ? "AI auto-assigned" : "You chose"} the best-fit doctor based on your symptoms.
+      </p>
+
+      <motion.div
+        initial={{ scale: 0.96, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 280, damping: 24 }}
+        className="mt-5 overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-card to-secondary/40 p-5 shadow-elevated"
+      >
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-foreground text-background">
+            <Stethoscope className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">{assignment.doctorSpecialty}</p>
+            <h3 className="font-display text-lg font-semibold leading-tight">{assignment.doctorName}</h3>
+            <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" /> {assignment.facilityName} · {assignment.departmentName}
+            </div>
+            {assignment.room && (
+              <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-foreground">
+                <MapPin className="h-3 w-3" /> {assignment.room}
+              </div>
+            )}
+          </div>
+          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.chip}`}>
+            {m.label}
+          </span>
+        </div>
+      </motion.div>
+
+      <button
+        onClick={onAgain}
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border border-border bg-background px-5 py-2.5 text-sm font-medium hover:bg-secondary"
+      >
+        Start another consultation
+      </button>
     </div>
   );
 }
@@ -257,17 +722,15 @@ function QueueCard({
             </div>
             <p className="mt-2 text-sm font-medium text-foreground">{latest.main_symptom}</p>
             <p className="text-xs text-muted-foreground">{latest.duration}</p>
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-background">
-              <div
-                className={`h-full rounded-full ${
-                  latest.priority === "critical"
-                    ? "w-11/12 bg-destructive"
-                    : latest.priority === "urgent"
-                      ? "w-2/3 bg-warning"
-                      : "w-1/3 bg-success"
-                }`}
-              />
-            </div>
+            {latest.assignment && (
+              <div className="mt-3 rounded-xl border border-border bg-background p-3 text-xs">
+                <p className="font-medium text-foreground">{latest.assignment.doctorName}</p>
+                <p className="text-muted-foreground">
+                  {latest.assignment.facilityName} · {latest.assignment.departmentName}
+                  {latest.assignment.room ? ` · ${latest.assignment.room}` : ""}
+                </p>
+              </div>
+            )}
           </div>
         </>
       ) : (
@@ -284,7 +747,7 @@ function QueueCard({
 }
 
 /* ============================================================
-   My submissions / history card
+   Submissions / history
    ============================================================ */
 
 function SubmissionsCard({ records }: { records: PatientRecord[] }) {
@@ -317,6 +780,7 @@ function SubmissionsCard({ records }: { records: PatientRecord[] }) {
                     <p className="truncate text-sm font-medium text-foreground">{r.main_symptom}</p>
                     <p className="text-xs text-muted-foreground">
                       {timeAgo(r.timestamp)} · severity {r.severity}/10 · {r.duration}
+                      {r.assignment && ` · ${r.assignment.doctorName}`}
                     </p>
                   </div>
                   <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.chip}`}>
@@ -333,6 +797,15 @@ function SubmissionsCard({ records }: { records: PatientRecord[] }) {
                       className="overflow-hidden"
                     >
                       <div className="space-y-3 border-t border-border px-4 py-4 text-sm">
+                        {r.assignment && (
+                          <div className="rounded-xl bg-secondary/60 p-3 text-xs">
+                            <p className="font-semibold text-foreground">{r.assignment.doctorName}</p>
+                            <p className="text-muted-foreground">
+                              {r.assignment.facilityName} · {r.assignment.departmentName}
+                              {r.assignment.room ? ` · ${r.assignment.room}` : ""}
+                            </p>
+                          </div>
+                        )}
                         <SoapBlock label="Subjective" text={r.soap.subjective} />
                         <SoapBlock label="Objective" text={r.soap.objective} />
                         <SoapBlock label="Assessment" text={r.soap.assessment} />
@@ -372,7 +845,3 @@ function timeAgo(ts: number) {
   if (h < 24) return `${h}h ago`;
   return new Date(ts).toLocaleDateString();
 }
-
-// keep AlertTriangle / CheckCircle2 imported for future status pills
-void AlertTriangle;
-void CheckCircle2;

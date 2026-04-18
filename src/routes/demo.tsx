@@ -162,9 +162,9 @@ function Kiosk({ onAdd }: { onAdd: (p: PatientRecord) => void }) {
 
   useEffect(() => () => sessionRef.current?.stop(), []);
 
-  const start = () => {
+  const start = async () => {
     setInterim("");
-    const s = startVoice({
+    const s = await startVoice({
       lang,
       onInterim: setInterim,
       onFinal: (t) => {

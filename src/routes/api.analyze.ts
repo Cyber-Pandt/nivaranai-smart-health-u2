@@ -1,14 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 const SYSTEM = `You are a careful clinical assistant supporting a triage workflow in India.
-A patient describes their symptoms in plain English or Hindi. Extract structured data and draft a SOAP note in clear, simple English.
+A patient describes their symptoms in plain English or Hindi. Extract structured data, draft a SOAP note, and pick the most appropriate hospital department.
 
 Severity guide (1-10):
 - 1-4: routine (mild discomfort, no red flags)
 - 5-7: urgent (significant symptoms, no immediate danger)
 - 8-10: critical (chest pain, breathlessness, severe bleeding, stroke signs, syncope, anaphylaxis)
 
-Be conservative: when in doubt about red flags, score higher.`;
+Be conservative: when in doubt about red flags, score higher.
+For department, ALWAYS pick exactly one from the provided list of available departments. If none fit well, pick "General Medicine" (or the closest equivalent in the list).`;
 
 const fallback = (transcript: string) => {
   const t = transcript.toLowerCase();
@@ -56,9 +57,15 @@ export const Route = createFileRoute("/api/analyze")({
     handlers: {
       POST: async ({ request }) => {
         let transcript = "";
+        let availableDepartments: string[] = [];
         try {
           const body = await request.json();
           transcript = String(body?.transcript ?? "").slice(0, 2000);
+          if (Array.isArray(body?.availableDepartments)) {
+            availableDepartments = body.availableDepartments
+              .filter((d: unknown) => typeof d === "string")
+              .slice(0, 30);
+          }
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
@@ -68,7 +75,12 @@ export const Route = createFileRoute("/api/analyze")({
 
         const apiKey = process.env.LOVABLE_API_KEY;
         if (!apiKey) {
-          return Response.json({ ...fallback(transcript), source: "fallback" });
+          const fb = fallback(transcript);
+          return Response.json({
+            ...fb,
+            suggested_department: pickFallbackDept(transcript, availableDepartments),
+            source: "fallback",
+          });
         }
 
         try {
@@ -82,20 +94,33 @@ export const Route = createFileRoute("/api/analyze")({
               model: "google/gemini-3-flash-preview",
               messages: [
                 { role: "system", content: SYSTEM },
-                { role: "user", content: `Patient transcript:\n"""${transcript}"""\n\nReturn a SOAP triage assessment.` },
+                {
+                  role: "user",
+                  content:
+                    `Patient transcript:\n"""${transcript}"""\n\n` +
+                    (availableDepartments.length
+                      ? `Available departments (pick one): ${availableDepartments.join(", ")}\n\n`
+                      : "") +
+                    "Return a SOAP triage assessment.",
+                },
               ],
               tools: [
                 {
                   type: "function",
                   function: {
                     name: "record_triage",
-                    description: "Record extracted symptom data and SOAP note.",
+                    description: "Record extracted symptom data, SOAP note, and best-fit department.",
                     parameters: {
                       type: "object",
                       properties: {
                         main_symptom: { type: "string", description: "One-line chief complaint." },
                         duration: { type: "string", description: "How long symptoms have lasted." },
                         severity: { type: "number", minimum: 1, maximum: 10 },
+                        suggested_department: {
+                          type: "string",
+                          description:
+                            "Best-fit department for the patient. MUST be one of the provided list when given.",
+                        },
                         soap: {
                           type: "object",
                           properties: {
@@ -108,7 +133,7 @@ export const Route = createFileRoute("/api/analyze")({
                           additionalProperties: false,
                         },
                       },
-                      required: ["main_symptom", "duration", "severity", "soap"],
+                      required: ["main_symptom", "duration", "severity", "soap", "suggested_department"],
                       additionalProperties: false,
                     },
                   },
@@ -126,22 +151,65 @@ export const Route = createFileRoute("/api/analyze")({
           }
           if (!resp.ok) {
             console.error("AI gateway error", resp.status, await resp.text());
-            return Response.json({ ...fallback(transcript), source: "fallback" });
+            const fb = fallback(transcript);
+            return Response.json({
+              ...fb,
+              suggested_department: pickFallbackDept(transcript, availableDepartments),
+              source: "fallback",
+            });
           }
 
           const data = await resp.json();
           const call = data.choices?.[0]?.message?.tool_calls?.[0];
           const args = call?.function?.arguments;
           if (!args) {
-            return Response.json({ ...fallback(transcript), source: "fallback" });
+            const fb = fallback(transcript);
+            return Response.json({
+              ...fb,
+              suggested_department: pickFallbackDept(transcript, availableDepartments),
+              source: "fallback",
+            });
           }
           const parsed = typeof args === "string" ? JSON.parse(args) : args;
+          // Snap AI's suggestion onto the available list (case-insensitive) when possible.
+          if (availableDepartments.length && parsed.suggested_department) {
+            const match = availableDepartments.find(
+              (d) => d.toLowerCase() === String(parsed.suggested_department).toLowerCase(),
+            );
+            parsed.suggested_department = match ?? pickFallbackDept(transcript, availableDepartments);
+          }
           return Response.json({ ...parsed, source: "ai" });
         } catch (e) {
           console.error("analyze error", e);
-          return Response.json({ ...fallback(transcript), source: "fallback" });
+          const fb = fallback(transcript);
+          return Response.json({
+            ...fb,
+            suggested_department: pickFallbackDept(transcript, availableDepartments),
+            source: "fallback",
+          });
         }
       },
     },
   },
 });
+
+/** Keyword-based department fallback when the AI is unavailable. */
+function pickFallbackDept(text: string, available: string[]): string {
+  const t = text.toLowerCase();
+  const rules: Array<[RegExp, string]> = [
+    [/chest|breath|saans|seene|heart|cardiac/, "Cardiology"],
+    [/headache|migraine|stroke|seizure|neuro/, "Neurology"],
+    [/stomach|abdomen|pet|nausea|vomit|diarr/, "Gastroenterology"],
+    [/skin|rash|allergy|itch/, "Dermatology"],
+    [/bone|fracture|joint|knee|back/, "Orthopedics"],
+    [/child|baby|paed|pediatric/, "Pediatrics"],
+  ];
+  for (const [re, dept] of rules) {
+    if (re.test(t)) {
+      const match = available.find((d) => d.toLowerCase() === dept.toLowerCase());
+      if (match) return match;
+    }
+  }
+  const general = available.find((d) => /general/i.test(d));
+  return general ?? available[0] ?? "General Medicine";
+}
