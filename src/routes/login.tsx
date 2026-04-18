@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Stethoscope, User, ArrowRight, Loader2 } from "lucide-react";
+import { Stethoscope, User, ArrowRight, Loader2, Building2 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { useAuth, type Role } from "@/lib/auth";
+import { isDoctorEmailRegistered } from "@/lib/hospitalAuth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -28,6 +29,11 @@ function LoginPage() {
     setError(null);
     if (!email || !password) {
       setError("Please enter email and password.");
+      return;
+    }
+    // Doctor email gate: only allow login if their email was registered by a hospital
+    if (role === "doctor" && !isDoctorEmailRegistered(email)) {
+      setError("This doctor email is not registered with any hospital yet. Ask your hospital admin to add you.");
       return;
     }
     setSubmitting(true);
@@ -104,6 +110,14 @@ function LoginPage() {
                 Sign up as {role}
               </Link>
             </p>
+            <div className="mt-3 border-t border-border pt-3 text-center">
+              <Link
+                to="/login/hospital"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Building2 className="h-3 w-3" /> Hospital portal login
+              </Link>
+            </div>
           </form>
         </div>
       </main>
