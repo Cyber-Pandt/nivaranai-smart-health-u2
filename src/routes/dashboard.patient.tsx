@@ -34,7 +34,7 @@ import {
 import { usePatients } from "@/hooks/usePatients";
 import { useFacilities } from "@/hooks/useFacilities";
 import { type Doctor, type Facility } from "@/lib/hospitals";
-import { isVoiceSupported, startVoice, type VoiceLang, type VoiceSession } from "@/lib/voice";
+import { isInIframe, isVoiceSupported, startVoice, type VoiceLang, type VoiceSession } from "@/lib/voice";
 
 export const Route = createFileRoute("/dashboard/patient")({
   head: () => ({ meta: [{ title: "Patient dashboard — NivaranAI" }] }),
@@ -322,6 +322,14 @@ function SymptomsStep({
         <p className="mt-3 text-center text-xs text-muted-foreground">
           Mic isn't supported here — type your symptoms below instead.
         </p>
+      )}
+
+      {supported && isInIframe() && (
+        <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-2.5 text-center text-[11px] text-foreground/80">
+          Mic may be blocked inside the preview iframe. If "Start speaking" does
+          nothing, click the <span className="font-semibold">↗ Open in new tab</span> button at
+          the top of the preview, or just type your symptoms below.
+        </div>
       )}
 
       <div className="mt-5">
