@@ -26,6 +26,15 @@ export interface Assignment {
   mode: "manual" | "auto";
 }
 
+export type PatientStatus = "pending" | "accepted" | "in_consult" | "completed" | "rejected";
+
+export interface PatientHistoryEntry {
+  id: string;
+  timestamp: number;
+  main_symptom: string;
+  severity: number;
+}
+
 export interface PatientRecord extends TriageResult {
   id: string;
   patient_name: string;
@@ -34,9 +43,15 @@ export interface PatientRecord extends TriageResult {
   transcript: string;
   priority: Priority;
   timestamp: number;
-  status?: "waiting" | "in_consult" | "done";
+  status?: PatientStatus;
   assignment?: Assignment;
   suggested_department?: string;
+  /** Mock pre-existing condition flag (e.g. "Diabetes", "Hypertension"). */
+  pre_existing?: string;
+  /** Past visits for the same patient name (populated on creation). */
+  history?: PatientHistoryEntry[];
+  /** Whether the doctor has sent a prescription. */
+  prescription_sent?: boolean;
 }
 
 export function getPriority(severity: number): Priority {
@@ -44,6 +59,14 @@ export function getPriority(severity: number): Priority {
   if (severity >= 5) return "urgent";
   return "normal";
 }
+
+export const statusMeta: Record<PatientStatus, { label: string; chip: string }> = {
+  pending: { label: "Pending", chip: "bg-muted text-foreground border-border" },
+  accepted: { label: "Accepted", chip: "bg-primary/10 text-primary border-primary/20" },
+  in_consult: { label: "In Consultation", chip: "bg-warning/15 text-[oklch(0.45_0.12_60)] border-warning/30" },
+  completed: { label: "Completed", chip: "bg-success/15 text-success border-success/30" },
+  rejected: { label: "Rejected", chip: "bg-destructive/10 text-destructive border-destructive/20" },
+};
 
 export const priorityMeta: Record<Priority, { label: string; dot: string; chip: string; ring: string; rank: number }> = {
   critical: {
@@ -93,7 +116,24 @@ export function savePatients(patients: PatientRecord[]) {
 
 export function addPatient(rec: PatientRecord) {
   const list = loadPatients();
-  const next = [rec, ...list];
+  // Attach prior visits for this patient (by name) as history.
+  const prior = list
+    .filter((p) => p.patient_name.toLowerCase() === rec.patient_name.toLowerCase())
+    .slice(0, 8)
+    .map<PatientHistoryEntry>((p) => ({
+      id: p.id,
+      timestamp: p.timestamp,
+      main_symptom: p.main_symptom,
+      severity: p.severity,
+    }));
+  const enriched: PatientRecord = { ...rec, history: prior };
+  const next = [enriched, ...list];
+  savePatients(next);
+  return next;
+}
+
+export function updatePatient(id: string, patch: Partial<PatientRecord>) {
+  const next = loadPatients().map((p) => (p.id === id ? { ...p, ...patch } : p));
   savePatients(next);
   return next;
 }
@@ -134,13 +174,25 @@ function seedPatients(): PatientRecord[] {
       duration: "2 days",
       severity: 4,
       priority: "normal",
-      status: "waiting",
+      status: "pending",
       timestamp: now - 1000 * 60 * 14,
       soap: {
         subjective: "Fever ~100°F with sore throat for 2 days. Mild difficulty swallowing, no body ache.",
         objective: "Awaiting examination.",
         assessment: "Likely viral pharyngitis.",
         plan: "Paracetamol PRN, saline gargles, hydration. Review in 3 days.",
+      },
+      assignment: {
+        facilityId: "seed-hosp-1",
+        facilityName: "Apollo City Hospital",
+        facilityType: "Hospital",
+        departmentId: "dept-general",
+        departmentName: "General Medicine",
+        doctorId: "doc-2",
+        doctorName: "Dr. Rohan Iyer",
+        doctorSpecialty: "General Physician",
+        room: "OPD-101",
+        mode: "auto",
       },
     },
     {
@@ -152,13 +204,26 @@ function seedPatients(): PatientRecord[] {
       duration: "Since morning",
       severity: 7,
       priority: "urgent",
-      status: "waiting",
+      status: "pending",
+      pre_existing: "Hypertension",
       timestamp: now - 1000 * 60 * 8,
       soap: {
         subjective: "Severe throbbing headache since morning. Known hypertensive.",
         objective: "Awaiting BP, neuro exam.",
         assessment: "Possible hypertensive urgency. Rule out secondary causes.",
         plan: "Check BP, neuro exam, ECG. Antihypertensive titration. Review in 1 hour.",
+      },
+      assignment: {
+        facilityId: "seed-hosp-1",
+        facilityName: "Apollo City Hospital",
+        facilityType: "Hospital",
+        departmentId: "dept-cardio",
+        departmentName: "Cardiology",
+        doctorId: "doc-1",
+        doctorName: "Dr. Anjali Mehta",
+        doctorSpecialty: "Cardiologist",
+        room: "OPD-204",
+        mode: "auto",
       },
     },
   ];
