@@ -22,12 +22,12 @@ export function FinalCTA() {
               Get started
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
-            <a
-              href="#features"
+            <Link
+              to="/signup/hospital"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-card"
             >
-              Explore features
-            </a>
+              Register hospital / clinic
+            </Link>
           </div>
         </div>
       </div>
