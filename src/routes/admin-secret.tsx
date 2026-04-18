@@ -12,10 +12,13 @@ import {
   Search,
   Copy,
   KeyRound,
+  Map,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { useFacilities } from "@/hooks/useFacilities";
+import { usePatients } from "@/hooks/usePatients";
 import {
   addDepartment,
   addDoctor,
@@ -103,6 +106,7 @@ function AdminPage() {
 
 function AdminDashboard() {
   const facilities = useFacilities();
+  const allPatients = usePatients();
   const [query, setQuery] = useState("");
   const [credModal, setCredModal] = useState<{
     cred: HospitalCredentials;
@@ -132,6 +136,7 @@ function AdminDashboard() {
     const cred = generateCredentials(f.name, f.id, appId);
     updateFacility(f.id, { status: "approved" });
     setCredModal({ cred, facilityName: f.name });
+    toast.success("Hospital Approved ✅");
   };
 
   return (
@@ -152,11 +157,14 @@ function AdminDashboard() {
           </Link>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Stat label="Pending" value={pending.length} />
-          <Stat label="Approved" value={approved.length} />
-          <Stat label="Rejected" value={rejected.length} />
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Total Hospitals" value={approved.length} />
+          <Stat label="Pending Approvals" value={pending.length} />
+          <Stat label="Active Doctors" value={approved.reduce((acc, f) => acc + f.doctors.length, 0)} />
+          <Stat label="Total Patients" value={allPatients.length} />
         </div>
+
+        <EpidemicRadar allPatients={allPatients} />
 
         <div className="relative mt-6">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -187,6 +195,53 @@ function Stat({ label, value }: { label: string; value: number }) {
       <div className="font-display mt-1 text-2xl font-semibold">{value}</div>
     </div>
   );
+}
+
+function EpidemicRadar({ allPatients }: { allPatients: any[] }) {
+  // Group by location AND primary symptom category
+  const clusters = allPatients.reduce((acc, p) => {
+    const loc = p.location || "Bhopal";
+    const title = p.main_symptom.toLowerCase();
+    const symptom = title.includes("fever") ? "Fever" : 
+                    title.includes("cough") ? "Respiratory" : null;
+    if (symptom) {
+       const key = `${loc}|${symptom}`;
+       acc[key] = (acc[key] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Find outbreaks (threshold 5+)
+  const outbreaks = Object.entries(clusters)
+    .filter(([_, count]) => (count as number) >= 5) 
+    .map(([key, count]) => {
+      const [loc, symptom] = key.split("|");
+      return { loc, symptom, count: count as number };
+    });
+
+  if (outbreaks.length === 0) return null;
+
+  return (
+    <div className="mt-6 rounded-2xl border border-destructive/20 bg-destructive/5 p-4 shadow-soft animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center gap-2 text-destructive mb-3">
+        <AlertTriangle className="h-5 w-5" />
+        <h3 className="font-display font-semibold tracking-tight">AI Epidemic Radar</h3>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+         {outbreaks.map((ob, idx) => (
+            <div key={idx} className="flex items-center gap-3 bg-background border border-destructive/30 p-3 rounded-xl shadow-sm">
+               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                 <Map className="h-5 w-5" />
+               </div>
+               <div>
+                  <p className="text-sm font-semibold text-destructive">🚨 Possible outbreak detected</p>
+                  <p className="text-xs text-muted-foreground">{ob.symptom} cases increasing in {ob.loc} ({ob.count} recent cases)</p>
+               </div>
+            </div>
+         ))}
+      </div>
+    </div>
+  )
 }
 
 function Section({

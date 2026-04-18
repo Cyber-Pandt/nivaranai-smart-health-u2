@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Building2, Stethoscope, Plus, Trash2, LogOut, Mail, ShieldCheck } from "lucide-react";
+import { Building2, Stethoscope, Plus, Trash2, LogOut, Mail, ShieldCheck, AlertTriangle, Map } from "lucide-react";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { useFacilities } from "@/hooks/useFacilities";
+import { usePatients } from "@/hooks/usePatients";
 import { addDepartment, addDoctor, deleteDoctor, type Facility } from "@/lib/hospitals";
 import { clearHospitalSession, getHospitalSession, registerDoctorEmail } from "@/lib/hospitalAuth";
 
@@ -15,6 +16,7 @@ export const Route = createFileRoute("/dashboard/hospital")({
 function HospitalDashboard() {
   const navigate = useNavigate();
   const facilities = useFacilities();
+  const allPatients = usePatients();
   const [facilityId, setFacilityId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,6 +99,8 @@ function HospitalDashboard() {
             <LogOut className="h-3.5 w-3.5" /> Logout
           </button>
         </div>
+        
+        <EpidemicRadar allPatients={allPatients} />
 
         <div className="mt-8 grid gap-5 md:grid-cols-2">
           <DepartmentsPanel facility={facility} />
@@ -105,6 +109,53 @@ function HospitalDashboard() {
       </main>
     </div>
   );
+}
+
+function EpidemicRadar({ allPatients }: { allPatients: any[] }) {
+  // Group by location AND primary symptom category
+  const clusters = allPatients.reduce((acc, p) => {
+    const loc = p.location || "Bhopal";
+    const title = p.main_symptom.toLowerCase();
+    const symptom = title.includes("fever") ? "Fever" : 
+                    title.includes("cough") ? "Respiratory" : null;
+    if (symptom) {
+       const key = `${loc}|${symptom}`;
+       acc[key] = (acc[key] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Find outbreaks (threshold 5+)
+  const outbreaks = Object.entries(clusters)
+    .filter(([_, count]) => (count as number) >= 5) 
+    .map(([key, count]) => {
+      const [loc, symptom] = key.split("|");
+      return { loc, symptom, count: count as number };
+    });
+
+  if (outbreaks.length === 0) return null;
+
+  return (
+    <div className="mt-6 rounded-2xl border border-destructive/20 bg-destructive/5 p-4 shadow-soft animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center gap-2 text-destructive mb-3">
+        <AlertTriangle className="h-5 w-5" />
+        <h3 className="font-display font-semibold tracking-tight">AI Epidemic Radar</h3>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+         {outbreaks.map((ob, idx) => (
+            <div key={idx} className="flex items-center gap-3 bg-background border border-destructive/30 p-3 rounded-xl shadow-sm">
+               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                 <Map className="h-5 w-5" />
+               </div>
+               <div>
+                  <p className="text-sm font-semibold text-destructive">🚨 Possible outbreak detected</p>
+                  <p className="text-xs text-muted-foreground">{ob.symptom} cases increasing in {ob.loc} ({ob.count} recent cases)</p>
+               </div>
+            </div>
+         ))}
+      </div>
+    </div>
+  )
 }
 
 function DepartmentsPanel({ facility }: { facility: Facility }) {

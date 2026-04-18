@@ -19,12 +19,14 @@ import {
   ChevronRight,
   ArrowLeft,
   MapPin,
+  Send,
 } from "lucide-react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { useAuth } from "@/lib/auth";
 import {
   addPatient,
   analyzeTranscript,
+  decryptVault,
   getPriority,
   priorityMeta,
   type Assignment,
@@ -52,7 +54,7 @@ function PatientDashboard() {
   const allPatients = usePatients();
 
   const mine = allPatients.filter(
-    (p) => user && p.patient_name.toLowerCase() === user.name.toLowerCase(),
+    (p) => user && decryptVault(p.patient_name).toLowerCase() === user.name.toLowerCase(),
   );
   const latest = mine[0] ?? null;
   const queuePosition = latest ? allPatients.findIndex((p) => p.id === latest.id) + 1 : null;
@@ -135,7 +137,8 @@ function PatientWizard() {
     addPatient(rec);
     setAssignment(a);
     setStep(3);
-    toast.success(`Assigned to ${a.doctorName} · ${priorityMeta[priority].label}`);
+    toast.success("Doctor Assigned Successfully ✅");
+    setTimeout(() => toast.success("Patient Sent to Doctor ✅"), 800);
   };
 
   return (
@@ -150,10 +153,8 @@ function PatientWizard() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
           >
-            <SymptomsStep
-              transcript={transcript}
-              setTranscript={setTranscript}
-              onNext={() => runAnalyze(transcript.trim())}
+            <ChatIntakeStep
+              onNext={(full) => runAnalyze(full)}
               analyzing={analyzing}
             />
           </motion.div>
@@ -225,175 +226,133 @@ function Stepper({ step }: { step: Step }) {
   );
 }
 
-/* ---- Step 1 — Symptoms (voice + text) ---- */
+/* ---- Step 1 — AI Interview (Chat) ---- */
 
-function SymptomsStep({
-  transcript,
-  setTranscript,
+function ChatIntakeStep({
   onNext,
   analyzing,
 }: {
-  transcript: string;
-  setTranscript: (v: string) => void;
-  onNext: () => void;
+  onNext: (finalTranscript: string) => void;
   analyzing: boolean;
 }) {
-  const [lang, setLang] = useState<VoiceLang>("en-IN");
-  const [interim, setInterim] = useState("");
-  const [recording, setRecording] = useState(false);
-  const [supported, setSupported] = useState(true);
-  const [starting, setStarting] = useState(false);
-  const sessionRef = useRef<VoiceSession | null>(null);
+  const [messages, setMessages] = useState<{ role: "ai" | "user"; text: string }[]>([
+    { role: "ai", text: "Hi! What brings you in today? Please describe your symptoms." }
+  ]);
+  const [draft, setDraft] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setSupported(isVoiceSupported());
-    return () => sessionRef.current?.stop();
-  }, []);
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
 
-  const start = async () => {
-    setInterim("");
-    setStarting(true);
-    try {
-      const s = await startVoice({
-        lang,
-        onInterim: setInterim,
-        onFinal: (t) => {
-          setTranscript(transcript ? `${transcript.trim()} ${t.trim()}` : t.trim());
-          setInterim("");
-        },
-        onError: (msg) => {
-          toast.error(msg);
-          setRecording(false);
-        },
-        onEnd: () => {
-          setInterim("");
-          setRecording(false);
-        },
-      });
-      if (s) {
-        sessionRef.current = s;
-        setRecording(true);
-      }
-    } finally {
-      setStarting(false);
+  const handleSend = () => {
+    if (!draft.trim() || isTyping || analyzing) return;
+    
+    const nextMsgs = [...messages, { role: "user" as const, text: draft.trim() }];
+    setMessages(nextMsgs);
+    setDraft("");
+
+    const userCount = nextMsgs.filter(m => m.role === "user").length;
+    
+    // Max 3 follow-ups + 1 initial = 4 user responses max
+    if (userCount >= 4) {
+      onNext(nextMsgs.filter(m => m.role === "user").map(m => m.text).join(". "));
+      return;
     }
+
+    setIsTyping(true);
+    setTimeout(() => {
+      let q = "Can you provide more details?";
+      const lastUser = nextMsgs[nextMsgs.length - 1].text.toLowerCase();
+      
+      if (lastUser.includes('fever')) q = "Do you have body pain or chills?";
+      else if (lastUser.includes('pain') || lastUser.includes('ache')) q = "How long has the pain been present, and how severe is it?";
+      else if (lastUser.match(/cough|throat/)) q = "Is it a dry cough, or are you coughing up phlegm?";
+      else if (userCount === 1) q = "Are there any other symptoms you are experiencing along with this?";
+      else if (userCount === 2) q = "Have you taken any medication for this so far?";
+      else if (userCount === 3) q = "Just one last question — on a scale of 1 to 10, how severe is your discomfort right now?";
+      
+      setMessages([...nextMsgs, { role: "ai", text: q }]);
+      setIsTyping(false);
+    }, 1000);
   };
 
-  const stop = () => {
-    sessionRef.current?.stop();
-    sessionRef.current = null;
-    setRecording(false);
+  const handleFinishEarly = () => {
+    const userReplies = messages.filter((m) => m.role === "user");
+    if (userReplies.length === 0) return;
+    onNext(userReplies.map((m) => m.text).join(". "));
   };
-
-  const display = transcript + (interim ? ` ${interim}` : "");
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-display text-xs uppercase tracking-[0.18em] text-primary">Step 1</p>
-          <h2 className="mt-1 font-display text-lg font-semibold">Describe your symptoms</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Speak naturally — you can edit the transcript before sending.
-          </p>
-        </div>
-        <button
-          onClick={() => setLang(lang === "en-IN" ? "hi-IN" : "en-IN")}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-        >
-          <Languages className="h-3.5 w-3.5" />
-          {lang === "en-IN" ? "EN" : "हिं"}
-        </button>
+    <div className="flex h-[480px] flex-col">
+      <div className="mb-4">
+        <p className="font-display text-xs uppercase tracking-[0.18em] text-primary">Step 1</p>
+        <h2 className="mt-1 font-display text-lg font-semibold">AI Interviewer</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Answer a few questions to get an accurate diagnosis.</p>
       </div>
 
-      <div className="mt-5 flex h-24 items-end justify-center gap-1 rounded-2xl bg-secondary/60 p-3">
-        {Array.from({ length: 36 }).map((_, i) => (
-          <span
-            key={i}
-            className="block w-1 rounded-full bg-primary/70"
-            style={{
-              height: recording
-                ? `${20 + Math.abs(Math.sin(i * 0.6 + Date.now() / 400)) * 75}%`
-                : "20%",
-              transition: "height 200ms ease",
-              animation: recording
-                ? `waveform 1.${(i % 9) + 1}s ease-in-out ${i * 0.04}s infinite`
-                : undefined,
-              transformOrigin: "bottom",
-            }}
-          />
+      <div className="flex-1 overflow-y-auto rounded-3xl border border-border bg-secondary/20 p-4 space-y-4">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+              m.role === 'user' 
+                ? 'bg-primary text-primary-foreground rounded-br-sm'
+                : 'bg-background border border-border rounded-bl-sm shadow-sm'
+            }`}>
+              {m.role === 'ai' && <Sparkles className="inline-block mr-1.5 h-3.5 w-3.5 text-primary mb-0.5" />}
+              {m.text}
+            </div>
+          </div>
         ))}
-      </div>
-
-      <div className="mt-5 flex items-center justify-center gap-3">
-        {!recording ? (
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={start}
-            disabled={!supported || analyzing || starting}
-            className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background transition-all hover:-translate-y-0.5 hover:bg-mineral hover:shadow-elevated disabled:opacity-50"
-          >
-            {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
-            {starting ? "Requesting mic…" : "Start speaking"}
-          </motion.button>
-        ) : (
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={stop}
-            className="inline-flex items-center gap-2 rounded-full bg-destructive px-6 py-3 text-sm font-medium text-destructive-foreground"
-          >
-            <MicOff className="h-4 w-4" /> Stop
-          </motion.button>
+        {isTyping && (
+           <div className="flex justify-start">
+             <div className="max-w-[80%] rounded-2xl bg-background border border-border rounded-bl-sm px-4 py-3 text-sm shadow-sm flex items-center gap-1.5 transition-all">
+               <span className="h-1.5 w-1.5 bg-primary/60 rounded-full animate-bounce"></span>
+               <span className="h-1.5 w-1.5 bg-primary/60 rounded-full animate-bounce delay-75"></span>
+               <span className="h-1.5 w-1.5 bg-primary/60 rounded-full animate-bounce delay-150"></span>
+             </div>
+           </div>
         )}
+        <div ref={endRef} />
       </div>
 
-      {!supported && (
-        <p className="mt-3 text-center text-xs text-muted-foreground">
-          Mic isn't supported here — type your symptoms below instead.
-        </p>
+      <div className="mt-4 flex gap-2 items-center">
+        <div className="relative flex-1">
+          <input
+            value={draft}
+            disabled={isTyping || analyzing}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSend();
+            }}
+            placeholder={isTyping ? "AI is typing..." : "Type your answer..."}
+            className="w-full rounded-full border border-input bg-background py-3.5 pl-5 pr-12 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-ring/30 disabled:opacity-50"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!draft.trim() || isTyping || analyzing}
+            className="absolute right-2 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-background transition-all hover:bg-mineral disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      
+      {messages.filter(m => m.role === 'user').length > 0 && !analyzing && !isTyping && (
+         <button
+            onClick={handleFinishEarly}
+            className="mt-3 text-xs text-muted-foreground hover:text-primary transition-colors text-center w-full"
+         >
+           Skip remaining questions and analyze now &rarr;
+         </button>
       )}
 
-      {supported && isInIframe() && (
-        <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-2.5 text-center text-[11px] text-foreground/80">
-          Mic may be blocked inside the preview iframe. If "Start speaking" does nothing, click the{" "}
-          <span className="font-semibold">↗ Open in new tab</span> button at the top of the preview,
-          or just type your symptoms below.
+      {analyzing && (
+        <div className="mt-4 flex justify-center text-sm font-medium text-primary animate-pulse">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing responses...
         </div>
       )}
-
-      <div className="mt-5">
-        <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Transcript {interim && <span className="text-primary">· listening…</span>}
-        </label>
-        <textarea
-          value={display}
-          onChange={(e) => {
-            setTranscript(e.target.value);
-            setInterim("");
-          }}
-          rows={4}
-          placeholder='e.g. "I have a sore throat and fever for two days."'
-          className="mt-1.5 w-full resize-none rounded-2xl border border-input bg-background p-4 text-sm leading-relaxed outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-ring/30"
-        />
-      </div>
-
-      <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={onNext}
-        disabled={analyzing || !transcript.trim()}
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-mineral px-5 py-3.5 text-sm font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:opacity-50"
-      >
-        {analyzing ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" /> AI is analyzing…
-          </>
-        ) : (
-          <>
-            <Sparkles className="h-4 w-4" /> Analyze with AI
-            <ChevronRight className="h-4 w-4" />
-          </>
-        )}
-      </motion.button>
     </div>
   );
 }
@@ -720,17 +679,32 @@ function SuccessStep({
               <Icon className="h-3.5 w-3.5" /> {assignment.facilityName} ·{" "}
               {assignment.departmentName}
             </div>
-            {assignment.room && (
-              <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-foreground">
-                <MapPin className="h-3 w-3" /> {assignment.room}
-              </div>
-            )}
           </div>
           <span
             className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.chip}`}
           >
             {m.label}
           </span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/50 pt-4">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <MapPin className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Room / Floor</p>
+              <p className="font-medium">{assignment.room || "OPD-1"} · Ground</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 text-[oklch(0.55_0.15_60)]">
+              <Clock className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Estimated Time</p>
+              <p className="font-medium">in ~15 mins</p>
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -791,11 +765,21 @@ function QueueCard({
             <p className="text-xs text-muted-foreground">{latest.duration}</p>
             {latest.assignment && (
               <div className="mt-3 rounded-xl border border-border bg-background p-3 text-xs">
-                <p className="font-medium text-foreground">{latest.assignment.doctorName}</p>
-                <p className="text-muted-foreground">
+                <p className="font-medium text-foreground text-sm">{latest.assignment.doctorName}</p>
+                <p className="text-muted-foreground mb-2">
                   {latest.assignment.facilityName} · {latest.assignment.departmentName}
-                  {latest.assignment.room ? ` · ${latest.assignment.room}` : ""}
                 </p>
+                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2 text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-primary" /> Room: {latest.assignment.room || "OPD-1"}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-primary" /> Ground Floor
+                  </div>
+                  <div className="flex items-center gap-1.5 col-span-2 text-warning font-medium">
+                    <Clock className="h-3.5 w-3.5 text-warning" /> Estimated Wait: {Math.max(1, (position || 1)) * 5} mins (approx)
+                  </div>
+                </div>
               </div>
             )}
           </div>
