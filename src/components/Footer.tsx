@@ -30,6 +30,7 @@ export function Footer() {
             <li><Link to="/login" className="hover:text-foreground">Login</Link></li>
             <li><Link to="/signup/patient" className="hover:text-foreground">Patient signup</Link></li>
             <li><Link to="/signup/doctor" className="hover:text-foreground">Doctor signup</Link></li>
+            <li><Link to="/signup/hospital" className="hover:text-foreground">Register hospital / clinic</Link></li>
           </ul>
         </div>
       </div>
